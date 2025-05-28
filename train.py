@@ -158,33 +158,28 @@ def main(args):
                        do_sample=True, top_k=40)
     print(enc.decode(y[0].tolist()))
 
-
-# -------------------------------------------------------------------- #
-#                              CLI                                     #
-# -------------------------------------------------------------------- #
 if __name__ == "__main__":
     L.seed_everything(42)
 
     p = ArgumentParser()
-    p.add_argument("--strategy", default="auto", type=str)
+    p.add_argument("--strategy", default="fsdp", type=str)
     p.add_argument("--model_type", default="gpt2")
-    p.add_argument("--n_layer", type=int, required=True)
-    p.add_argument("--n_head", type=int, required=True)
-    p.add_argument("--n_embd", type=int, required=True)
+    p.add_argument("--n_layer", type=int, default=16)
+    p.add_argument("--n_head", type=int, default=16)
+    p.add_argument("--n_embd", type=int, default=1024)
     p.add_argument("--learning_rate", default=3e-4, type=float)
     p.add_argument("--max_epochs", default=10, type=int)
 
     p.add_argument("--data_dir", default="data/openwebtext")
-    p.add_argument("--block_size", default=128, type=int)
-    p.add_argument("--batch_size", default=64, type=int)
+    p.add_argument("--block_size", default=1024, type=int)
+    p.add_argument("--batch_size", default=8, type=int)
     p.add_argument("--num_workers", default=4, type=int)
 
     # NEW: how many random samples constitute *one epoch*
     p.add_argument("--samples_per_epoch", default=1_000_000, type=int)
 
-    p.add_argument("--compile", default=None, choices=[None, "dynamo"])
-    p.add_argument("--implementation", default="nanogpt",
-                   choices=["mingpt", "nanogpt"])
-    args = p.parse_args()
+    p.add_argument("--compile", default="dynamo", choices=[None, "dynamo"])
+    p.add_argument("--implementation", default="nanogpt", choices=["mingpt", "nanogpt"])
 
+    args = p.parse_args()
     main(args)

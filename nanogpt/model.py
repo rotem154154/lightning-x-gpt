@@ -33,8 +33,8 @@ class CausalSelfAttention(nn.Module):
         self.block_size = config.block_size
 
         # key, query, value projections for all heads
-        self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd)
-        self.c_proj = nn.Linear(config.n_embd, config.n_embd)
+        self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd,bias=False)
+        self.c_proj = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         self.attn_dropout = nn.Dropout(config.dropout)
         self.resid_dropout = nn.Dropout(config.dropout)
 

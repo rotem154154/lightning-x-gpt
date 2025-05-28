@@ -57,8 +57,8 @@ class CausalSelfAttention(nn.Module):
         v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
         
         # QK-Norm: normalize Q and K vectors to unit length
-        q = q / (q.norm(dim=-1, keepdim=True) + 1e-6)
-        k = k / (k.norm(dim=-1, keepdim=True) + 1e-6)
+        # q = q / (q.norm(dim=-1, keepdim=True) + 1e-6)
+        # k = k / (k.norm(dim=-1, keepdim=True) + 1e-6)
 
         if self.flash:
             # Flash attention

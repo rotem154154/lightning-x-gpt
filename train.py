@@ -100,7 +100,7 @@ def main(args):
         extra.update(dict(embd_pdrop=0.1, resid_pdrop=0.1, attn_pdrop=0.1))
     elif args.implementation == "nanogpt":
         GPT = models.NanoGPT
-        # extra["dropout"] = 0.1
+        extra["dropout"] = 0.0
     else:
         raise ValueError(f"Unsupported implementation {args.implementation}")
     

@@ -19,6 +19,55 @@ class ReluSquared(nn.Module):
     def forward(self, x):
         return F.relu(x) ** 2
 
+class RotaryEmbedding(nn.Module):
+    """
+    Implements the original RoPE: https://arxiv.org/abs/2104.09864
+    Expects input tensors of shape (B, n_head, T, head_dim).
+    """
+
+    def __init__(self, head_dim: int, base: int = 10_000):
+        super().__init__()
+        self.head_dim = head_dim
+        inv_freq = 1.0 / (base ** (torch.arange(0, head_dim, 2).float() / head_dim))
+        self.register_buffer("inv_freq", inv_freq, persistent=False)
+        # caches for faster inference
+        self.register_buffer("cos_cached", torch.empty(0), persistent=False)
+        self.register_buffer("sin_cached", torch.empty(0), persistent=False)
+        self.seq_len_cached: int = 0
+
+    def _build_cache(self, seq_len: int, device: torch.device):
+        """Pre-compute cos/sin tables up to the requested sequence length."""
+        if seq_len > self.seq_len_cached:
+            t = torch.arange(seq_len, device=device, dtype=self.inv_freq.dtype)
+            freqs = torch.einsum("i,j->ij", t, self.inv_freq)        # (T, D/2)
+            emb = torch.cat((freqs, freqs), dim=-1)                  # (T, D)
+            cos, sin = emb.cos(), emb.sin()                          # each (T, D)
+            self.cos_cached = cos[:, None, None, :]                  # (T,1,1,D)
+            self.sin_cached = sin[:, None, None, :]                  # "
+            self.seq_len_cached = seq_len
+
+    def apply_rotary(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor):
+        """
+        RoPE rotates pairs of even/odd dimensions.
+        x shape: (B, n_head, T, D)
+        cos/sin shape: (T, 1, 1, D)
+        """
+        x_even = x[..., 0::2]
+        x_odd  = x[..., 1::2]
+        x_rot  = torch.stack((-x_odd, x_even), dim=-1).reshape_as(x)
+        return x * cos + x_rot * sin
+
+    def forward(self, q: torch.Tensor, k: torch.Tensor):
+        """
+        Applies rotary embeddings **in-place** to q and k, returns rotated tensors.
+        """
+        seq_len = q.size(-2)
+        self._build_cache(seq_len, q.device)
+        cos = self.cos_cached[:seq_len]  # slice to length T
+        sin = self.sin_cached[:seq_len]
+        return self.apply_rotary(q, cos, sin), self.apply_rotary(k, cos, sin)
+
+
 class CausalSelfAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -134,9 +183,17 @@ class GPT(nn.Module):
             ln_f = RMSNorm(config.n_embd, eps=1e-5, elementwise_affine=True),
         ))
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+<<<<<<< Updated upstream
 
         # removing weight tying made the training 8% slower and with 20% more params but it converge faster
         # self.transformer.wte.weight = self.lm_head.weight # https://paperswithcode.com/method/weight-tying
+=======
+        # with weight tying when using torch.compile() some warnings get generated:
+        # "UserWarning: functional_call was passed multiple values for tied weights.
+        # This behavior is deprecated and will be an error in future versions"
+        # not 100% sure what this is, so far seems to be harmless. TODO investigate
+        # self.transformer.wte.weight = self.lm_head.weight # https://paperswithcode.com/method/weight-tying without 20% more params 10% slower
+>>>>>>> Stashed changes
 
         # init all weights
         self.apply(self._init_weights)

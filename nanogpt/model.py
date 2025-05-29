@@ -19,60 +19,46 @@ class ReluSquared(nn.Module):
     def forward(self, x):
         return F.relu(x) ** 2
 
-class RotaryEmbedding(nn.Module):
+class Rotary(nn.Module):
     """
-    Implements the original RoPE: https://arxiv.org/abs/2104.09864
-    Expects input tensors of shape (B, n_head, T, head_dim).
+    Rotary position embedding applied on last dimension that
+    alternates even/odd channels (standard GPT-NeoX style).
+    Expects input of shape (B, T, H, D).
     """
-
-    def __init__(self, head_dim: int, base: int = 10_000):
+    def __init__(self, dim, base: int = 10_000):
         super().__init__()
-        self.head_dim = head_dim
-        inv_freq = 1.0 / (base ** (torch.arange(0, head_dim, 2).float() / head_dim))
-        self.register_buffer("inv_freq", inv_freq, persistent=False)
-        # caches for faster inference
-        self.register_buffer("cos_cached", torch.empty(0), persistent=False)
-        self.register_buffer("sin_cached", torch.empty(0), persistent=False)
-        self.seq_len_cached: int = 0
+        self.dim = dim
+        self.base = base
+        self.inv_freq = None          # lazily constructed buffers
+        self.cos_cached = None
+        self.sin_cached = None
+        self.seq_len_cached = 0
 
-    def _build_cache(self, seq_len: int, device: torch.device):
-        """Pre-compute cos/sin tables up to the requested sequence length."""
-        if seq_len > self.seq_len_cached:
-            t = torch.arange(seq_len, device=device, dtype=self.inv_freq.dtype)
-            freqs = torch.einsum("i,j->ij", t, self.inv_freq)        # (T, D/2)
-            emb = torch.cat((freqs, freqs), dim=-1)                  # (T, D)
-            cos, sin = emb.cos(), emb.sin()                          # each (T, D)
-            self.cos_cached = cos[:, None, None, :]                  # (T,1,1,D)
-            self.sin_cached = sin[:, None, None, :]                  # "
-            self.seq_len_cached = seq_len
+    def forward(self, x):
+        B, T, H, D = x.shape                     # D == self.dim
+        if T != self.seq_len_cached or self.inv_freq is None:
+            device = x.device
+            self.inv_freq = 1.0 / (self.base ** (torch.arange(0, D, 2,
+                                     device=device).float() / D))
+            t = torch.arange(T, device=device).float()
+            freqs = torch.outer(t, self.inv_freq)          # (T, D/2)
+            self.cos_cached = freqs.cos()[None, :, None, :]   # (1,T,1,D/2)
+            self.sin_cached = freqs.sin()[None, :, None, :]
+            self.seq_len_cached = T
 
-    def apply_rotary(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor):
-        """
-        RoPE rotates pairs of even/odd dimensions.
-        x shape: (B, n_head, T, D)
-        cos/sin shape: (T, 1, 1, D)
-        """
-        x_even = x[..., 0::2]
-        x_odd  = x[..., 1::2]
-        x_rot  = torch.stack((-x_odd, x_even), dim=-1).reshape_as(x)
-        return x * cos + x_rot * sin
-
-    def forward(self, q: torch.Tensor, k: torch.Tensor):
-        """
-        Applies rotary embeddings **in-place** to q and k, returns rotated tensors.
-        """
-        seq_len = q.size(-2)
-        self._build_cache(seq_len, q.device)
-        cos = self.cos_cached[:seq_len]  # slice to length T
-        sin = self.sin_cached[:seq_len]
-        return self.apply_rotary(q, cos, sin), self.apply_rotary(k, cos, sin)
-
+        cos, sin = self.cos_cached, self.sin_cached
+        # split into even / odd
+        x1, x2 = x[..., ::2], x[..., 1::2]
+        y1 =  x1 * cos - x2 * sin
+        y2 =  x1 * sin + x2 * cos
+        return torch.stack((y1, y2), dim=-1).flatten(-2)   # back to (..., D)
 
 class CausalSelfAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
         assert config.n_embd % config.n_head == 0
         self.n_head = config.n_head
+        self.rotary = Rotary(config.n_embd // config.n_head)
         self.n_embd = config.n_embd
         self.dropout = config.dropout
         self.block_size = config.block_size
@@ -94,14 +80,22 @@ class CausalSelfAttention(nn.Module):
     def forward(self, x):
         B, T, C = x.size()
 
-        # calculate query, key, values
         qkv = self.c_attn(x)
         q, k, v = qkv.split(self.n_embd, dim=2)
-        q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
-        k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
-        v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
         
-        # QK-Norm: normalize Q and K vectors to unit length
+        # (B, T, H, D)
+        q = q.view(B, T, self.n_head, C // self.n_head)
+        k = k.view(B, T, self.n_head, C // self.n_head)
+        v = v.view(B, T, self.n_head, C // self.n_head)
+        
+        # --- RoPE here ----
+        q = self.rotary(q)
+        k = self.rotary(k)
+        
+        # back to (B, H, T, D) for attention kernels
+        q = q.transpose(1, 2)
+        k = k.transpose(1, 2)
+        v = v.transpose(1, 2)        # QK-Norm: normalize Q and K vectors to unit length
         # q = q / (q.norm(dim=-1, keepdim=True) + 1e-6)
         # k = k / (k.norm(dim=-1, keepdim=True) + 1e-6)
 
@@ -183,17 +177,9 @@ class GPT(nn.Module):
             ln_f = RMSNorm(config.n_embd, eps=1e-5, elementwise_affine=True),
         ))
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
-<<<<<<< Updated upstream
 
         # removing weight tying made the training 8% slower and with 20% more params but it converge faster
         # self.transformer.wte.weight = self.lm_head.weight # https://paperswithcode.com/method/weight-tying
-=======
-        # with weight tying when using torch.compile() some warnings get generated:
-        # "UserWarning: functional_call was passed multiple values for tied weights.
-        # This behavior is deprecated and will be an error in future versions"
-        # not 100% sure what this is, so far seems to be harmless. TODO investigate
-        # self.transformer.wte.weight = self.lm_head.weight # https://paperswithcode.com/method/weight-tying without 20% more params 10% slower
->>>>>>> Stashed changes
 
         # init all weights
         self.apply(self._init_weights)
@@ -236,8 +222,9 @@ class GPT(nn.Module):
 
         # forward the GPT model itself
         tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
-        pos_emb = self.transformer.wpe(pos) # position embeddings of shape (1, t, n_embd)
-        x = self.transformer.drop(tok_emb + pos_emb)
+        # pos_emb = self.transformer.wpe(pos) # position embeddings of shape (1, t, n_embd)
+        # x = self.transformer.drop(tok_emb + pos_emb)
+        x = self.transformer.drop(tok_emb)        # RoPE already encodes position
         for block in self.transformer.h:
             x = block(x)
         x = self.transformer.ln_f(x)

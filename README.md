@@ -18,3 +18,4 @@ Modern GPT with Lightning, inspired by x-transformers and recent research.
 ### No Improvement Yet
 - QK Normalization (probable bad implementation, TODO: try different normalization)
 - SageAttention (may help inference but destroys gradients)
+- Laser

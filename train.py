@@ -162,7 +162,7 @@ if __name__ == "__main__":
     L.seed_everything(42)
 
     p = ArgumentParser()
-    p.add_argument("--strategy", default="auto", type=str)
+    p.add_argument("--strategy", default="fsdp", type=str)
     p.add_argument("--model_type", default="gpt2")
     p.add_argument("--n_layer", type=int, default=16)
     p.add_argument("--n_head", type=int, default=16)

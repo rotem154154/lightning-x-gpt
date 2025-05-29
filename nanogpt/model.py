@@ -344,6 +344,7 @@ class GPT(nn.Module):
         # this tensor into optimization via transformer.wte.weight only, and not decayed.
         # decay.remove('lm_head.weight')
         decay.discard('lm_head.weight')  # for NanoGPT
+        no_decay.add('lm_head.weight')   # make sure it's included
         decay.discard('head.weight')     # for MinGPT
 
         # validate that we considered every parameter

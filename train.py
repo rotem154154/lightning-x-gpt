@@ -144,7 +144,7 @@ def main(args):
         accelerator="auto",
         devices="auto",
         strategy=args.strategy,
-        precision="bf16",
+        precision="16-mixed",
         logger=WandbLogger(),      # keeps your WandB project unchanged
     )
 

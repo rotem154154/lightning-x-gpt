@@ -6,8 +6,7 @@ Modern GPT with Lightning, inspired by x-transformers and recent research.
 
 ### Significantly Improved
 - Flash-Attention
-- Fully Sharded Data Parallel (FSDP)
-- torch.compile integration
+- torch.compile
 
 ### Moderate Improvements
 - RMSNorm instead of LayerNorm

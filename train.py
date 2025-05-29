@@ -167,12 +167,12 @@ if __name__ == "__main__":
     p.add_argument("--n_layer", type=int, default=16)
     p.add_argument("--n_head", type=int, default=16)
     p.add_argument("--n_embd", type=int, default=1024)
-    p.add_argument("--learning_rate", default=3e-4, type=float)
+    p.add_argument("--learning_rate", default=1e-3, type=float)
     p.add_argument("--max_epochs", default=10, type=int)
 
     p.add_argument("--data_dir", default="data/openwebtext")
     p.add_argument("--block_size", default=1024, type=int)
-    p.add_argument("--batch_size", default=8, type=int)
+    p.add_argument("--batch_size", default=32, type=int)
     p.add_argument("--num_workers", default=4, type=int)
 
     # NEW: how many random samples constitute *one epoch*

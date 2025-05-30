@@ -19,6 +19,26 @@ class ReluSquared(nn.Module):
     def forward(self, x):
         return F.relu(x) ** 2
 
+class Qwen3RMSNorm(nn.Module):
+    def __init__(self, hidden_size, eps=1e-6):
+        """
+        Qwen3RMSNorm is equivalent to T5LayerNorm
+        """
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(hidden_size))
+        self.variance_epsilon = eps
+
+    def forward(self, hidden_states):
+        input_dtype = hidden_states.dtype
+        hidden_states = hidden_states.to(torch.float32)
+        variance = hidden_states.pow(2).mean(-1, keepdim=True)
+        hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
+        return self.weight * hidden_states.to(input_dtype)
+
+    def extra_repr(self):
+        return f"{tuple(self.weight.shape)}, eps={self.variance_epsilon}"
+
+
 class Rotary(nn.Module):
     """
     Rotary position embedding applied on last dimension that
@@ -190,10 +210,10 @@ class Block(nn.Module):
     def __init__(self, config):
         super().__init__()
         # self.ln_1 = RMSNorm(config.n_embd, eps=1e-5, elementwise_affine=True)
-        self.ln_1 = SimpleRMSNorm(config.n_embd)
+        self.ln_1 = Qwen3RMSNorm(config.n_embd, eps=1e-5)
         self.attn = CausalSelfAttention(config)
         # self.ln_2 = RMSNorm(config.n_embd, eps=1e-5, elementwise_affine=True)
-        self.ln_2 = SimpleRMSNorm(config.n_embd)
+        self.ln_2= Qwen3RMSNorm(config.n_embd, eps=1e-5)
         self.mlp = MLP(config)
 
     def forward(self, x):
@@ -225,7 +245,7 @@ class GPT(nn.Module):
             drop = nn.Dropout(config.dropout),
             h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
             # ln_f = RMSNorm(config.n_embd, eps=1e-5, elementwise_affine=True),
-            ln_f = SimpleRMSNorm(config.n_embd)
+            ln_f = Qwen3RMSNorm(config.n_embd, eps=1e-5)
         ))
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 

@@ -191,19 +191,19 @@ class CausalSelfAttention(nn.Module):
 class MLP(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.config = config
-        self.intermediate_size = 2560
-        self.gate_proj = nn.Linear(config.n_embd, self.intermediate_size, bias=False)
-        self.up_proj = nn.Linear(config.n_embd, self.intermediate_size, bias=False)
-        self.down_proj = nn.Linear(self.intermediate_size, config.n_embd, bias=False)
-        self.act_fn = ReluSquared()
+        self.c_fc    = nn.Linear(config.n_embd, 4 * config.n_embd, bias=config.bias)
+        self.c_proj  = nn.Linear(4 * config.n_embd, config.n_embd, bias=config.bias)
+        self.dropout = nn.Dropout(config.dropout)
+        self.act = ReluSquared()
 
     def forward(self, x):
-        down_proj = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
-        return down_proj
-
+        x = self.c_fc(x)
+        x = self.act(x)
+        x = self.c_proj(x)
+        x = self.dropout(x)
+        return x
+        
 class Block(nn.Module):
-
     def __init__(self, config):
         super().__init__()
         # self.ln_1 = RMSNorm(config.n_embd, eps=1e-5, elementwise_affine=True)

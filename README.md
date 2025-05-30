@@ -9,7 +9,7 @@ Modern GPT with Lightning, inspired by x-transformers and recent research.
 - torch.compile
 
 ### Moderate Improvements
-- RMSNorm instead of LayerNorm
+- Qwen3RMSNorm > RMSNorm > LayerNorm
 - No bias for QKV projections
 - ReLU Squared activation instead of GELU
 - No bias for all linear layers

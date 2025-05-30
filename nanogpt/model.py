@@ -19,18 +19,6 @@ class ReluSquared(nn.Module):
     def forward(self, x):
         return F.relu(x) ** 2
 
-class SimpleRMSNorm(nn.Module):
-    def __init__(
-        self,
-        dim,
-        **kwargs
-    ):
-        super().__init__()
-        self.scale = dim ** 0.5
-
-    def forward(self, x):
-        return F.normalize(x, dim = -1) * self.scale
-
 class Rotary(nn.Module):
     """
     Rotary position embedding applied on last dimension that

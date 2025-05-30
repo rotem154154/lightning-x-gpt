@@ -19,7 +19,18 @@ class ReluSquared(nn.Module):
     def forward(self, x):
         return F.relu(x) ** 2
 
-<<<<<<< Updated upstream
+class SimpleRMSNorm(nn.Module):
+    def __init__(
+        self,
+        dim,
+        **kwargs
+    ):
+        super().__init__()
+        self.scale = dim ** 0.5
+
+    def forward(self, x):
+        return F.normalize(x, dim = -1) * self.scale
+
 class Rotary(nn.Module):
     """
     Rotary position embedding applied on last dimension that
@@ -53,7 +64,7 @@ class Rotary(nn.Module):
         y1 =  x1 * cos - x2 * sin
         y2 =  x1 * sin + x2 * cos
         return torch.stack((y1, y2), dim=-1).flatten(-2)   # back to (..., D)
-=======
+
 class RotaryEmbedding(nn.Module):
     """
     Implements the original RoPE: https://arxiv.org/abs/2104.09864
@@ -101,8 +112,6 @@ class RotaryEmbedding(nn.Module):
         cos = self.cos_cached[:seq_len]  # slice to length T
         sin = self.sin_cached[:seq_len]
         return self.apply_rotary(q, cos, sin), self.apply_rotary(k, cos, sin)
-
->>>>>>> Stashed changes
 
 class CausalSelfAttention(nn.Module):
     def __init__(self, config):
@@ -192,9 +201,11 @@ class Block(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        self.ln_1 = RMSNorm(config.n_embd, eps=1e-5, elementwise_affine=True)
+        # self.ln_1 = RMSNorm(config.n_embd, eps=1e-5, elementwise_affine=True)
+        self.ln_1 = SimpleRMSNorm(config.n_embd)
         self.attn = CausalSelfAttention(config)
-        self.ln_2 = RMSNorm(config.n_embd, eps=1e-5, elementwise_affine=True)
+        # self.ln_2 = RMSNorm(config.n_embd, eps=1e-5, elementwise_affine=True)
+        self.ln_2 = SimpleRMSNorm(config.n_embd)
         self.mlp = MLP(config)
 
     def forward(self, x):
@@ -225,20 +236,18 @@ class GPT(nn.Module):
             wpe = nn.Embedding(config.block_size, config.n_embd),
             drop = nn.Dropout(config.dropout),
             h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
-            ln_f = RMSNorm(config.n_embd, eps=1e-5, elementwise_affine=True),
+            # ln_f = RMSNorm(config.n_embd, eps=1e-5, elementwise_affine=True),
+            ln_f = SimpleRMSNorm(config.n_embd)
         ))
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
-<<<<<<< Updated upstream
 
         # removing weight tying made the training 8% slower and with 20% more params but it converge faster
         # self.transformer.wte.weight = self.lm_head.weight # https://paperswithcode.com/method/weight-tying
-=======
         # with weight tying when using torch.compile() some warnings get generated:
         # "UserWarning: functional_call was passed multiple values for tied weights.
         # This behavior is deprecated and will be an error in future versions"
         # not 100% sure what this is, so far seems to be harmless. TODO investigate
         # self.transformer.wte.weight = self.lm_head.weight # https://paperswithcode.com/method/weight-tying without 20% more params 10% slower
->>>>>>> Stashed changes
 
         # init all weights
         self.apply(self._init_weights)
@@ -269,8 +278,8 @@ class GPT(nn.Module):
                 torch.nn.init.zeros_(module.bias)
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
-        elif isinstance(module, (RMSNorm, torch.nn.RMSNorm)):
-            torch.nn.init.ones_(module.weight)
+        # elif isinstance(module, (RMSNorm, torch.nn.RMSNorm)):
+        #     torch.nn.init.ones_(module.weight)
             # Most RMSNorm implementations don’t have bias; skip this part unless you added it
 
     def forward(self, idx, targets=None):

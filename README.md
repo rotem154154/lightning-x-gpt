@@ -13,11 +13,11 @@ Modern GPT with Lightning, inspired by x-transformers and recent research.
 - No bias for QKV projections
 - ReLU Squared activation instead of GELU
 - No bias for all linear layers
-- Removed weight tying: +8% training time, +20% params, but faster convergence
+- Weight tying
+- Gated MLP
 
 ### No Improvement Yet
 - QK Normalization (probable bad implementation, TODO: try different normalization)
 - SageAttention (may help inference but destroys gradients)
 - Laser
 - SimpleRMSNorm
-- Gated MLP

@@ -191,17 +191,16 @@ class CausalSelfAttention(nn.Module):
 class MLP(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.c_fc    = nn.Linear(config.n_embd, 4 * config.n_embd, bias=config.bias)
-        self.c_proj  = nn.Linear(4 * config.n_embd, config.n_embd, bias=config.bias)
-        self.dropout = nn.Dropout(config.dropout)
-        self.act = ReluSquared()
+        self.config = config
+        self.intermediate_size = 3584
+        self.gate_proj = nn.Linear(config.n_embd, self.intermediate_size, bias=False)
+        self.up_proj = nn.Linear(config.n_embd, self.intermediate_size, bias=False)#Add commentMore actions
+        self.down_proj = nn.Linear(self.intermediate_size, config.n_embd, bias=False)
+        self.act_fn = ReluSquared()
 
     def forward(self, x):
-        x = self.c_fc(x)
-        x = self.act(x)
-        x = self.c_proj(x)
-        x = self.dropout(x)
-        return x
+        down_proj = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))#Add commentMore actions
+        return down_proj
         
 class Block(nn.Module):
     def __init__(self, config):
@@ -247,7 +246,7 @@ class GPT(nn.Module):
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
         # removing weight tying made the training 8% slower and with 20% more params but it converge faster
-        # self.transformer.wte.weight = self.lm_head.weight # https://paperswithcode.com/method/weight-tying
+        self.transformer.wte.weight = self.lm_head.weight # https://paperswithcode.com/method/weight-tying
         # with weight tying when using torch.compile() some warnings get generated:
         # "UserWarning: functional_call was passed multiple values for tied weights.
         # This behavior is deprecated and will be an error in future versions"

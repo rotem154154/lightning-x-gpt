@@ -4,11 +4,9 @@ Modern GPT with Lightning, inspired by x-transformers and recent research.
 
 ## Modifications
 
-### Significantly Improved
+### Improvements
 - Flash-Attention
 - torch.compile
-
-### Moderate Improvements
 - Qwen3RMSNorm > RMSNorm > LayerNorm
 - No bias for QKV projections
 - ReLU Squared activation instead of GELU

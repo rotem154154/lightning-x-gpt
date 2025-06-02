@@ -13,6 +13,7 @@ Modern GPT with Lightning, inspired by x-transformers and recent research.
 - No bias for all linear layers
 - Weight tying
 - Gated MLP
+- Parallel Attention/MLP
 
 ### No Improvement Yet
 - QK Normalization (probable bad implementation, TODO: try different normalization)

@@ -14,6 +14,12 @@ from torch.nn import RMSNorm
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+from lion_pytorch import Lion
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.set_float32_matmul_precision("high")
+
+from torch.nn.attention import sdpa_kernel, SDPBackend  # PT 2.4+
+from flash_attn import flash_attn_func
 
 class ReluSquared(nn.Module):
     def forward(self, x):
@@ -161,20 +167,22 @@ class CausalSelfAttention(nn.Module):
         k = self.rotary(k)
         
         # back to (B, H, T, D) for attention kernels
-        q = q.transpose(1, 2)
-        k = k.transpose(1, 2)
+        q = q.transpose(1, 2).half()
+        k = k.transpose(1, 2).half()
         v = v.transpose(1, 2)        # QK-Norm: normalize Q and K vectors to unit length
         # q = q / (q.norm(dim=-1, keepdim=True) + 1e-6)
         # k = k / (k.norm(dim=-1, keepdim=True) + 1e-6)
 
         if self.flash:
-            # Flash attention
-            y = torch.nn.functional.scaled_dot_product_attention(
-                q, k, v,
-                attn_mask=None,
-                dropout_p=0.0,
-                is_causal=True
-            )
+            with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
+                # Flash attention
+                y = torch.nn.functional.scaled_dot_product_attention(
+                    q, k, v,
+                    attn_mask=None,
+                    dropout_p=0.0,
+                    is_causal=True
+                )
+
         else:
             # Classic attention with causal mask
             att = (q @ k.transpose(-2, -1)) / math.sqrt(k.size(-1))  # (B, nh, T, T)
@@ -400,8 +408,16 @@ class GPT(nn.Module):
             {"params": no_decay_params, "weight_decay": 0.0},
         ]
     
-        use_fused = (device_type == 'cuda') and ('fused' in inspect.signature(torch.optim.AdamW).parameters)
-        optimizer = torch.optim.AdamW(optim_groups, lr=learning_rate, betas=betas, fused=use_fused)
+        # use_fused = (device_type == 'cuda') and ('fused' in inspect.signature(torch.optim.AdamW).parameters)
+        # optimizer = torch.optim.AdamW(optim_groups, lr=learning_rate, betas=betas, fused=use_fused)
+        optimizer = Lion(
+            optim_groups,
+            lr=learning_rate,      # see hyper-param notes below (≈3× lower than AdamW)
+            betas=betas,           # typically (0.9, 0.99) or (0.95, 0.98)
+            use_triton=(device_type == "cuda")  # fused CUDA kernel if Triton is installed
+        )
+ 
+        print("Using Triton:", optimizer.use_triton)
     
         return optimizer
         

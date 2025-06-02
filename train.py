@@ -10,6 +10,13 @@ from lightning_gpt import callbacks, models
 
 import tiktoken   # GPT-2 BPE
 
+torch.backends.cudnn.benchmark = True  # Enable for performance if input sizes don't vary much
+torch.set_grad_enabled(True)
+# torch._inductor.config.conv_1x1_as_mm = True
+# torch._inductor.config.coordinate_descent_tuning = True
+# torch._inductor.config.epilogue_fusion = False
+# torch._inductor.config.coordinate_descent_check_all_directions = True
+
 # -------------------------------------------------------------------- #
 #                       DATASET – random-access sampler                #
 # -------------------------------------------------------------------- #
@@ -80,6 +87,8 @@ def main(args):
         train_dataset,
         batch_size=args.batch_size,
         num_workers=args.num_workers,
+        persistent_workers=True,
+        prefetch_factor=4,  # Add prefetch_factor
         shuffle=True,          # now only shuffles 1 M indices, not 9 B 🙂
         pin_memory=True,
         drop_last=True,
@@ -118,9 +127,9 @@ def main(args):
         n_layer=args.n_layer,
         n_head=args.n_head,
         n_embd=args.n_embd,
-        weight_decay=0.1,
+        weight_decay=0.02,
         learning_rate=args.learning_rate,
-        betas=(0.9, 0.95),
+        betas=(0.8, 0.98),
         **extra,
     )
 
@@ -129,12 +138,14 @@ def main(args):
             raise RuntimeError(
                 f"torch {torch.__version__} lacks compile(); install ≥ 2.0 or drop --compile")
         model = torch.compile(model)
+        # model = torch.compile(model, backend="inductor", mode="max-autotune", fullgraph=True) # crush
 
     # ------------ Trainer ----------
     cb = []
     if torch.cuda.is_available():
         torch.set_float32_matmul_precision("high")
         cb.append(callbacks.CUDAMetricsCallback())
+        
 
     trainer = L.Trainer(
         max_epochs=args.max_epochs,
@@ -144,7 +155,7 @@ def main(args):
         accelerator="auto",
         devices="auto",
         strategy=args.strategy,
-        precision="16-mixed",
+        precision="bf16-mixed",
         logger=WandbLogger(),      # keeps your WandB project unchanged
     )
 
@@ -167,7 +178,7 @@ if __name__ == "__main__":
     p.add_argument("--n_layer", type=int, default=16)
     p.add_argument("--n_head", type=int, default=16)
     p.add_argument("--n_embd", type=int, default=1024)
-    p.add_argument("--learning_rate", default=1e-3, type=float)
+    p.add_argument("--learning_rate", default=3e-4, type=float)
     p.add_argument("--max_epochs", default=10, type=int)
 
     p.add_argument("--data_dir", default="data/openwebtext")

@@ -20,3 +20,4 @@ Modern GPT with Lightning, inspired by x-transformers and recent research.
 - SageAttention (may help inference but destroys gradients)
 - Laser
 - SimpleRMSNorm
+- DyT

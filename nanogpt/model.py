@@ -15,7 +15,6 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 from lion_pytorch import Lion
-from flash_attn.flash_attn_interface import flash_attn_func  # v2 interface
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.set_float32_matmul_precision("high")
 
@@ -163,52 +162,51 @@ class CausalSelfAttention(nn.Module):
             bias = torch.tril(torch.ones(self.block_size, self.block_size, dtype=torch.bool))
             self.register_buffer("bias", bias.view(1, 1, self.block_size, self.block_size), persistent=False)
 
-
     def forward(self, x):
         B, T, C = x.size()
 
         qkv = self.c_attn(x)
         q, k, v = qkv.split(self.n_embd, dim=2)
+        
+        # (B, T, H, D)
         q = q.view(B, T, self.n_head, C // self.n_head)
         k = k.view(B, T, self.n_head, C // self.n_head)
         v = v.view(B, T, self.n_head, C // self.n_head)
-
+        
+        # --- RoPE here ----
         q = self.rotary(q)
         k = self.rotary(k)
-
-        # FlashAttention expects: [batch, seqlen, nheads, headdim]
-        # No need to transpose
+        
+        # back to (B, H, T, D) for attention kernels
+        q = q.transpose(1, 2).half()
+        k = k.transpose(1, 2).half()
+        v = v.transpose(1, 2)        # QK-Norm: normalize Q and K vectors to unit length
+        # q = q / (q.norm(dim=-1, keepdim=True) + 1e-6)
+        # k = k / (k.norm(dim=-1, keepdim=True) + 1e-6)
 
         if self.flash:
-            # Set your sliding window here:
-            window_size = (64, 0)  # Example: look back 256 tokens
-            # flash_attn_func returns [B, T, nh, hd]
-            q = q.to(torch.bfloat16)  # or .half()
-            k = k.to(torch.bfloat16)
-            v = v.to(torch.bfloat16)
-            y = flash_attn_func(
-                q, k, v,
-                dropout_p=0.0,
-                causal=True,
-                window_size=(-1,-1),
-            )
+            with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
+                # Flash attention
+                y = torch.nn.functional.scaled_dot_product_attention(
+                    q, k, v,
+                    attn_mask=None,
+                    dropout_p=0.0,
+                    is_causal=True
+                )
+
         else:
-            # Classic attention
-            q_ = q.transpose(1, 2)  # (B, nh, T, hd)
-            k_ = k.transpose(1, 2)
-            v_ = v.transpose(1, 2)
-            att = (q_ @ k_.transpose(-2, -1)) / math.sqrt(k_.size(-1))
-            mask = self.bias[:, :, :T, :T].to(att.device)
+            # Classic attention with causal mask
+            att = (q @ k.transpose(-2, -1)) / math.sqrt(k.size(-1))  # (B, nh, T, T)
+            mask = self.bias[:, :, :T, :T].to(att.device)            # <--- DEVICE FIX HERE!
             att = att.masked_fill(~mask, float('-inf'))
             att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
-            y = att @ v_
-            y = y.transpose(1, 2)
+            y = att @ v
 
-        y = y.contiguous().view(B, T, C)
+        y = y.transpose(1, 2).contiguous().view(B, T, C)
         y = self.resid_dropout(self.c_proj(y))
         return y
-        
+
 class MLP(nn.Module):
     def __init__(self, config):
         super().__init__()

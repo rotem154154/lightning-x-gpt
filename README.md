@@ -14,10 +14,10 @@ Modern GPT with Lightning, inspired by x-transformers and recent research.
 - Weight tying
 - Gated MLP
 - Parallel Attention/MLP
+- DyT
 
 ### No Improvement Yet
 - QK Normalization (probable bad implementation, TODO: try different normalization)
 - SageAttention (may help inference but destroys gradients)
 - Laser
 - SimpleRMSNorm
-- DyT

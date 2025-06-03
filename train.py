@@ -155,7 +155,7 @@ def main(args):
         accelerator="auto",
         devices="auto",
         strategy=args.strategy,
-        precision="bf16-mixed",
+        precision="bf16",
         logger=WandbLogger(),      # keeps your WandB project unchanged
     )
 
@@ -183,7 +183,7 @@ if __name__ == "__main__":
 
     p.add_argument("--data_dir", default="data/openwebtext")
     p.add_argument("--block_size", default=1024, type=int)
-    p.add_argument("--batch_size", default=32, type=int)
+    p.add_argument("--batch_size", default=16, type=int)
     p.add_argument("--num_workers", default=4, type=int)
 
     # NEW: how many random samples constitute *one epoch*

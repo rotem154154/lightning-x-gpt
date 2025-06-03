@@ -225,12 +225,12 @@ class Block(nn.Module):
     def __init__(self, config):
         super().__init__()
         # self.ln_1 = RMSNorm(config.n_embd, eps=1e-5, elementwise_affine=True)
-        # self.ln_1 = Qwen3RMSNorm(config.n_embd, eps=1e-5)
-        self.ln_1= DyT(config.n_embd, init_alpha=1.0)
+        self.ln_1 = Qwen3RMSNorm(config.n_embd, eps=1e-5)
+        # self.ln_1= DyT(config.n_embd, init_alpha=1.0)
         self.attn = CausalSelfAttention(config)
         # self.ln_2 = RMSNorm(config.n_embd, eps=1e-5, elementwise_affine=True)
-        # self.ln_2= Qwen3RMSNorm(config.n_embd, eps=1e-5)
-        self.ln_2 =  DyT(config.n_embd, init_alpha=1.0)
+        self.ln_2= Qwen3RMSNorm(config.n_embd, eps=1e-5)
+        # self.ln_2 =  DyT(config.n_embd, init_alpha=1.0)
         self.mlp = MLP(config)
 
     def forward(self, x):

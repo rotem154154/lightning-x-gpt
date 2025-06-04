@@ -44,18 +44,6 @@ class Qwen3RMSNorm(nn.Module):
     def extra_repr(self):
         return f"{tuple(self.weight.shape)}, eps={self.variance_epsilon}"
 
-class DyT(nn.Module):
-    def __init__(self, hidden_size, init_alpha=0.5):
-        super().__init__()
-        self.alpha = nn.Parameter(torch.ones(1) * init_alpha)   # scalar, or use shape (hidden_size,)
-        self.gamma = nn.Parameter(torch.ones(hidden_size))      # like weight in LN/RMSNorm
-        self.beta = nn.Parameter(torch.zeros(hidden_size))      # like bias in LN
-    def forward(self, x):
-        # x: [batch, seq, hidden]
-        y = torch.tanh(self.alpha * x)
-        return self.gamma * y + self.beta
-
-
 class Rotary(nn.Module):
     """
     Rotary position embedding applied on last dimension that
@@ -224,13 +212,9 @@ class MLP(nn.Module):
 class Block(nn.Module):
     def __init__(self, config):
         super().__init__()
-        # self.ln_1 = RMSNorm(config.n_embd, eps=1e-5, elementwise_affine=True)
         self.ln_1 = Qwen3RMSNorm(config.n_embd, eps=1e-5)
-        # self.ln_1= DyT(config.n_embd, init_alpha=1.0)
         self.attn = CausalSelfAttention(config)
-        # self.ln_2 = RMSNorm(config.n_embd, eps=1e-5, elementwise_affine=True)
         self.ln_2= Qwen3RMSNorm(config.n_embd, eps=1e-5)
-        # self.ln_2 =  DyT(config.n_embd, init_alpha=1.0)
         self.mlp = MLP(config)
 
     def forward(self, x):
@@ -262,9 +246,7 @@ class GPT(nn.Module):
             wpe = nn.Embedding(config.block_size, config.n_embd),
             drop = nn.Dropout(config.dropout),
             h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
-            # ln_f = RMSNorm(config.n_embd, eps=1e-5, elementwise_affine=True),
             ln_f = Qwen3RMSNorm(config.n_embd, eps=1e-5)
-            # ln_f = DyT(config.n_embd, init_alpha=1.0) # doesn't seems to work
         ))
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 

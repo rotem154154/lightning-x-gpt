@@ -17,7 +17,6 @@ from torch.nn import functional as F
 from lion_pytorch import Lion
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.set_float32_matmul_precision("high")
-
 from torch.nn.attention import sdpa_kernel, SDPBackend  # PT 2.4+
 from flash_attn import flash_attn_func
 
@@ -150,11 +149,14 @@ class CausalSelfAttention(nn.Module):
             bias = torch.tril(torch.ones(self.block_size, self.block_size, dtype=torch.bool))
             self.register_buffer("bias", bias.view(1, 1, self.block_size, self.block_size), persistent=False)
 
-    def forward(self, x):
+    def forward(self, x, extra_v=None):
         B, T, C = x.size()
 
         qkv = self.c_attn(x)
         q, k, v = qkv.split(self.n_embd, dim=2)
+        
+        if extra_v is not None:
+            v = v + extra_v
         
         # (B, T, H, D)
         q = q.view(B, T, self.n_head, C // self.n_head)
@@ -210,16 +212,20 @@ class MLP(nn.Module):
         return down_proj
         
 class Block(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, value_embed_layer=None):
         super().__init__()
         self.ln_1 = Qwen3RMSNorm(config.n_embd, eps=1e-5)
         self.attn = CausalSelfAttention(config)
         self.ln_2= Qwen3RMSNorm(config.n_embd, eps=1e-5)
         self.mlp = MLP(config)
+        self.value_embed_layer = value_embed_layer
 
-    def forward(self, x):
+    def forward(self, x, token_idx):
+        v_extra = (self.value_embed_layer(token_idx)
+                   if self.value_embed_layer is not None else None)
+        
         # Parallel residual: both attn and mlp see the same input
-        attn_out = self.attn(self.ln_1(x))
+        attn_out = self.attn(self.ln_1(x), v_extra)
         mlp_out = self.mlp(self.ln_2(x))
         return x + attn_out + mlp_out
         
@@ -241,11 +247,21 @@ class GPT(nn.Module):
         assert config.block_size is not None
         self.config = config
 
+        selected_layers = {5, 10, 15}  # set of layers you want value embeddings in
+        
+        self.value_embeds = nn.ModuleList([
+            nn.Embedding(config.vocab_size, config.n_embd) if i in selected_layers else None
+            for i in range(config.n_layer)
+        ])
+        
         self.transformer = nn.ModuleDict(dict(
             wte = nn.Embedding(config.vocab_size, config.n_embd),
             wpe = nn.Embedding(config.block_size, config.n_embd),
             drop = nn.Dropout(config.dropout),
-            h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
+            h = nn.ModuleList([
+                Block(config, value_embed_layer=self.value_embeds[i])
+                for i in range(config.n_layer)
+            ]),
             ln_f = Qwen3RMSNorm(config.n_embd, eps=1e-5)
         ))
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
@@ -303,7 +319,7 @@ class GPT(nn.Module):
         # x = self.transformer.drop(tok_emb + pos_emb)
         x = self.transformer.drop(tok_emb)        # RoPE already encodes position
         for block in self.transformer.h:
-            x = block(x)
+            x = block(x, token_idx=idx)
         x = self.transformer.ln_f(x)
 
         if targets is not None:
